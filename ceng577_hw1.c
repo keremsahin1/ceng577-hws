@@ -1,106 +1,127 @@
 #include "mpi.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+#include <string.h>
 
-#define VECTOR_LENGTH   1048576
-#define frand()         (((double)rand()) / RAND_MAX)
+void parseInputs(int iArgCnt, char* sArrArgs[]);
+void initArrays();
+
+int GiVectorLength = 10000000, GiIterationCnt = 100, GiSubVectorLength = 0;
+int GiProcessRank = 0, GiProcessCnt = 0;
+double *GdArrX, *GdArrY, *GdArrSubX, *GdArrSubY;
 
 int main(int iArgCnt, char* sArrArgs[])
 {
-   const int ciSizeOfDouble = sizeof(double);
-   int iSubArraySize = 0;
-   int iProcessRank, iProcessCnt, iArrayIndex;
-   double *dArrX, *dArrY, *dArrSubX, *dArrSubY;
+   int iIterationNo = 0;
+   int iArrayIndex = 0;
    double dSubResult = 0, dTotalResult = 0;
-   double dTime0, dTime1, dTimeDiff;
-   MPI_Status status;
+   double dTime0 = 0, dTime1 = 0, dTimeDiff = 0, dMinTimeDiff = 1000, dMaxTimeDiff = 0;
+   MPI_Status statusX, statusY;
+
+   parseInputs(iArgCnt, sArrArgs);
 
    MPI_Init(&iArgCnt, &sArrArgs);
-   MPI_Comm_size(MPI_COMM_WORLD, &iProcessCnt);
-   MPI_Comm_rank(MPI_COMM_WORLD, &iProcessRank);
+   MPI_Comm_size(MPI_COMM_WORLD, &GiProcessCnt);
+   MPI_Comm_rank(MPI_COMM_WORLD, &GiProcessRank);
 
-   iSubArraySize = VECTOR_LENGTH/iProcessCnt;
-   dArrSubX = (double*)malloc(iSubArraySize * ciSizeOfDouble);
-   dArrSubY = (double*)malloc(iSubArraySize * ciSizeOfDouble);
+   initArrays();
 
-   if(iProcessRank == 0)
+   for(iIterationNo = 0; iIterationNo < GiIterationCnt; iIterationNo++)
    {
-      dArrX = (double*)malloc(VECTOR_LENGTH * ciSizeOfDouble);
-      dArrY = (double*)malloc(VECTOR_LENGTH * ciSizeOfDouble);
+      dSubResult = 0;
 
-      for(iArrayIndex = 0; iArrayIndex < VECTOR_LENGTH; iArrayIndex++)
+      MPI_Barrier(MPI_COMM_WORLD);
+      dTime0 = MPI_Wtime();
+      if(GiProcessCnt > 1)
       {
-         srand(time(0));
-         dArrX[iArrayIndex] = frand();
-         dArrY[iArrayIndex] = frand();
-      }
-
-      /*printf("Process0: Arrays are filled with random numbers!\n");*/
-   }
-
-   MPI_Barrier(MPI_COMM_WORLD);
-   dTime0 = MPI_Wtime();
-   if(iProcessCnt > 1)
-   {
-      if(iProcessRank == 0)
-      {
-         for(iArrayIndex = 1; iArrayIndex < iProcessCnt; iArrayIndex++)
+         if(GiProcessRank == 0)
          {
-            MPI_Send((dArrX + (iSubArraySize * iArrayIndex)), iSubArraySize, MPI_DOUBLE, iArrayIndex, 0, MPI_COMM_WORLD);
-            MPI_Send((dArrY + (iSubArraySize * iArrayIndex)), iSubArraySize, MPI_DOUBLE, iArrayIndex, 0, MPI_COMM_WORLD);
+            for(iArrayIndex = 1; iArrayIndex < GiProcessCnt; iArrayIndex++)
+            {
+               MPI_Send((GdArrX + (GiSubVectorLength * iArrayIndex)), GiSubVectorLength, MPI_DOUBLE, iArrayIndex, 0, MPI_COMM_WORLD);
+               MPI_Send((GdArrY + (GiSubVectorLength * iArrayIndex)), GiSubVectorLength, MPI_DOUBLE, iArrayIndex, 0, MPI_COMM_WORLD);
 
-            /*printf("Process0: Subarrays are sent to Process%d!\n", iArrayIndex);*/
+               /*printf("Process0: Subarrays are sent to Process%d!\n", iArrayIndex);*/
+            }
+
+            for(iArrayIndex = 0; iArrayIndex < GiSubVectorLength; iArrayIndex++)
+            {
+               dSubResult += (GdArrX[iArrayIndex] * GdArrY[iArrayIndex]);
+            }
+            /*printf("Process0: I did my job and I will be waiting for the subresults!\n");*/
          }
-
-         for(iArrayIndex = 0; iArrayIndex < iSubArraySize; iArrayIndex++)
+         else
          {
-            dTotalResult += (dArrX[iArrayIndex] * dArrY[iArrayIndex]);
-         }
-         /*printf("Process0: I did my job and I will be waiting for the subresults!\n");*/
+            MPI_Recv(GdArrSubX, GiSubVectorLength, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, &statusX);
+            MPI_Recv(GdArrSubY, GiSubVectorLength, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, &statusY);
 
-         for(iArrayIndex = 1; iArrayIndex < iProcessCnt; iArrayIndex++)
-         {
-            MPI_Recv(&dSubResult, 1, MPI_DOUBLE, iArrayIndex, 0, MPI_COMM_WORLD, &status);
-            dTotalResult += dSubResult;
+            for(iArrayIndex = 0; iArrayIndex < GiSubVectorLength; iArrayIndex++)
+            {
+               dSubResult += (GdArrSubX[iArrayIndex] * GdArrSubY[iArrayIndex]);
+            }
 
-            /*printf("Process0: The subresult of Process%d has arrived!\n", iArrayIndex);*/
+            /*printf("Process%d: I did my job and I will be sending my result to Process0!\n", GiProcessRank);*/
          }
       }
       else
       {
-         MPI_Recv(dArrSubX, iSubArraySize, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, &status);
-         MPI_Recv(dArrSubY, iSubArraySize, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, &status);
-
-         for(iArrayIndex = 0; iArrayIndex < iSubArraySize; iArrayIndex++)
+         for(iArrayIndex = 0; iArrayIndex < GiVectorLength; iArrayIndex++)
          {
-            dSubResult += (dArrSubX[iArrayIndex] * dArrSubY[iArrayIndex]);
+            dSubResult += (GdArrX[iArrayIndex] * GdArrY[iArrayIndex]);
          }
-
-         /*printf("Process%d: I did my job and I will be sending my result to Process0!\n", iProcessRank);*/
-
-         MPI_Send(&dSubResult, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
       }
-   }
-   else
-   {
-      for(iArrayIndex = 0; iArrayIndex < VECTOR_LENGTH; iArrayIndex++)
-      {
-         dTotalResult += (dArrX[iArrayIndex] * dArrY[iArrayIndex]);
-      }
-   }
-   dTime1 = MPI_Wtime();
-   dTimeDiff = dTime1 - dTime0;
 
-   if(iProcessRank == 0)
-      printf("Result=%f Computation Time=%f\n", dTotalResult, dTimeDiff);
+      MPI_Barrier(MPI_COMM_WORLD);
+      MPI_Reduce(&dSubResult, &dTotalResult, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
+      dTime1 = MPI_Wtime();
+      dTimeDiff = (dTime1 - dTime0);
+
+      if(dTimeDiff > dMaxTimeDiff)
+         dMaxTimeDiff = dTimeDiff;
+      if(dTimeDiff < dMinTimeDiff)
+         dMinTimeDiff = dTimeDiff;
+   }
+
+   if(GiProcessRank == 0)
+      printf("Result=%f\nMin Time=%f uSec\nMax Time=%f uSec\n", dTotalResult, (1.e6 * dMinTimeDiff), (1.e6 * dMaxTimeDiff));
+   
    MPI_Finalize();
-
-   free(dArrSubX);
-   free(dArrSubX);
-   free(dArrX);
-   free(dArrY);
 }
 
+void parseInputs(int iArgCnt, char* sArrArgs[])
+{
+   int iArgNo = 0;
 
+   for (iArgNo = 0; iArgNo < iArgCnt; iArgNo++)
+   {
+      if(strcmp("-s", sArrArgs[iArgNo]) == 0)
+         GiVectorLength = atoi(sArrArgs[++iArgNo]);
+      else if(strcmp("-i", sArrArgs[iArgNo]) == 0)
+         GiIterationCnt = atoi(sArrArgs[++iArgNo]);
+   }
+}
+
+void initArrays()
+{
+   const int ciSizeOfDouble = sizeof(double);
+   int iArrayIndex = 0;
+
+   GiSubVectorLength = GiVectorLength/GiProcessCnt;
+   GdArrSubX = (double*)malloc(GiSubVectorLength * ciSizeOfDouble);
+   GdArrSubY = (double*)malloc(GiSubVectorLength * ciSizeOfDouble);
+
+   if(GiProcessRank == 0)
+   {
+      GdArrX = (double*)malloc(GiVectorLength * ciSizeOfDouble);
+      GdArrY = (double*)malloc(GiVectorLength * ciSizeOfDouble);
+
+      for(iArrayIndex = 0; iArrayIndex < GiVectorLength; iArrayIndex++)
+      {
+         GdArrX[iArrayIndex] = 0.1 + (0.1 * (iArrayIndex % 20));
+         GdArrY[iArrayIndex] = 2.0 - (0.1 * (iArrayIndex % 20));
+      }
+
+      /*printf("Process0: Arrays are initialized!\n");*/
+   }
+}
