@@ -87,13 +87,15 @@ int main(int iArgCnt, char* sArrArgs[])
       printf("Result=%f\nMin Time=%f uSec\nMax Time=%f uSec\n", dTotalResult, (1.e6 * dMinTimeDiff), (1.e6 * dMaxTimeDiff));
    
    MPI_Finalize();
+
+   return 0;
 }
 
 void parseInputs(int iArgCnt, char* sArrArgs[])
 {
    int iArgNo = 0;
 
-   for (iArgNo = 0; iArgNo < iArgCnt; iArgNo++)
+   for (iArgNo = 1; iArgNo < iArgCnt; iArgNo++)
    {
       if(strcmp("-s", sArrArgs[iArgNo]) == 0)
          GiVectorLength = atoi(sArrArgs[++iArgNo]);
